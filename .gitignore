@@ -1,0 +1,5 @@
+src/my-config.yaml
+# Ignore result dirs with date-time format (YYYY-MM-DD-HH)
+[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]-[0-2][0-9]
+.idea
+.venv

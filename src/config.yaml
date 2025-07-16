@@ -1,0 +1,62 @@
+# Zotero-Arxiv-Daily Configuration
+
+# -----------------
+# Application Settings
+# -----------------
+app:
+  # Maximum number of papers to include in the daily digest.
+  max_paper_num: 10
+
+  # Number of papers to process in parallel (threads).
+  max_workers: 10
+
+# Preference source: "zotero" or "local"
+preference_source: "zotero"
+
+# Zotero configuration
+zotero:
+  # Your Zotero user ID. Find it here: https://www.zotero.org/settings/keys
+  id: "YOUR_ZOTERO_ID"  # <--- Fill in your Zotero ID here
+
+  # Your Zotero API key (with read permissions). Create one here: https://www.zotero.org/settings/keys
+  key: "YOUR_ZOTERO_API_KEY" # <--- Fill in your Zotero API key here
+
+  # [New Feature] Recency of papers for recommendations (in months).
+  # Set to 2 to consider only papers added to Zotero in the last 2 months to calculate your interests.
+  # Set to -1 to consider all papers in your Zotero.
+  # Available since: v0.2.0. Recommended to set to 12 to build a corpus based on papers from the last year.
+  recency_months: -1
+
+  # Gitignore-style rules to exclude certain Zotero collections.
+  ignore:
+    - "Working"
+    - "Trash"
+
+# Local PDF configuration
+local:
+  # Path to your local directory of preferred papers
+  path: "path/to/your/papers"
+
+# arXiv configuration, for more query details, see https://info.arxiv.org/help/api/user-manual.html#31-details-of-query-construction
+arxiv:
+  # The arXiv fields you are interested in. Use '+' to connect multiple fields.
+  # Find abbreviations here: https://arxiv.org/category_taxonomy
+  query: "cs.AI+cs.CV+cs.LG+cs.CL"
+
+# -----------------
+# Large Language Model (LLM) Settings
+# -----------------
+llm:
+  use_llm_api: true
+  language: "English"
+
+  # --- API Settings (only required if use_llm_api is true) ---
+
+  # Your OpenAI-compatible API key.
+  openai_api_key: "sk-YOUR_API_KEY" # <--- Fill in your LLM API Key here
+
+  # The base URL for the API.
+  openai_api_base: "https://api.openai.com/v1" # <--- Fill in your LLM API Base URL here
+
+  # The model name to use for generating summaries.
+  model_name: "gpt-4o" # <--- Fill in the model name you want to use here
