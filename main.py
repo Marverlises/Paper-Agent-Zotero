@@ -30,7 +30,7 @@ from dateutil.parser import isoparse
 import pytz
 
 
-def load_config(path="src/my-config.yaml"):
+def load_config(path="src/config.yaml"):
     """Loads the YAML configuration file."""
     try:
         with open(path, 'r', encoding='utf-8') as f:
