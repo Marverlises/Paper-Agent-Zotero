@@ -4,12 +4,13 @@
 # @File       : paper.py
 # @Description: Defines the ArxivPaper class for handling paper data and operations.
 
-from typing import Optional
+from typing import Optional, LiteralString
 from functools import cached_property
 from tempfile import TemporaryDirectory
 import arxiv
 import tarfile
 import re
+from pathlib import Path
 from src.llm import get_llm
 import requests
 from requests.adapters import HTTPAdapter, Retry
@@ -19,6 +20,7 @@ from contextlib import ExitStack
 import os
 import fitz  # PyMuPDF
 from .llm import get_llm, set_global_llm
+from .pdf_layout_analyzer import get_pdf_layout_analyzer
 
 
 class ArxivPaper:
@@ -51,19 +53,35 @@ class ArxivPaper:
     @cached_property
     def pdf_text(self) -> str:
         """Extracts text from the downloaded PDF. Caches the result."""
-        if not os.path.exists(self.pdf_path):
+        if not self.pdf_path.exists():
             logger.error(f"PDF for '{self.title}' not available at '{self.pdf_path}'. Cannot extract text.")
             return ""
 
         logger.info(f"Extracting text from {self.pdf_path}...")
         try:
-            with fitz.open(self.pdf_path) as doc:
-                text = "".join(page.get_text() for page in doc)
+            text = get_pdf_layout_analyzer().extract_as_md(pdf=self.pdf_path).strip()
             logger.success(f"Successfully extracted text for '{self.title}'.")
-            return text.strip()
+            return text
         except Exception as e:
             logger.error(f"Failed to read PDF text from {self.pdf_path}: {e}")
             return ""
+
+    @cached_property
+    def images_in_order(self) -> list[LiteralString | str | bytes] | None:
+        """Extracts images url from pdf_text."""
+        pattern = r'!\[.*?\]\((assets_dir\\.*?\.png)\)'
+        matches = re.findall(pattern, self.pdf_text)
+        if not matches:
+            logger.debug(f"No images found in {self.arxiv_id}.")
+            return None
+        # Convert to absolute paths
+        assets_dir = self.pdf_path.parent
+        image_urls = [os.path.join(assets_dir, match) for match in matches]
+        if not image_urls:
+            logger.debug(f"No valid image URLs found in {self.arxiv_id}.")
+            return None
+        logger.info(f"Found {len(image_urls)} images in {self.arxiv_id}.")
+        return image_urls
 
     @cached_property
     def code_url(self) -> Optional[str]:
@@ -228,15 +246,16 @@ class ArxivPaper:
         """Downloads the PDF and stores its path."""
         if self._is_downloaded:
             return
-
-        filename = f"{self.arxiv_id}-{title}.pdf"
-        self.pdf_path = os.path.join(dirpath, filename)
-
+        title = re.sub(r'[^\w\s-]', '', self.title).replace(' ', '_')  # Clean title for filename
+        filename = f"{self.arxiv_id}.{title}.pdf"
+        # replace dots in filename to avoid issues with file systems
+        filename = re.sub(r'\.+', '.', filename)
         try:
             # The arxiv library handles the download and saving.
-            self.paper.download_pdf(dirpath=dirpath)
+            self.paper.download_pdf(dirpath=dirpath, filename=filename)
             self._is_downloaded = True
             logger.info(f"Successfully downloaded '{filename}'.")
+            self.pdf_path = Path(os.path.join(dirpath, filename))
         except Exception as e:
             logger.error(f"Failed to download PDF for '{self.arxiv_id}': {e}")
             self.pdf_path = None  # Reset path on failure
@@ -246,33 +265,40 @@ class ArxivPaper:
 class LocalPaper:
     """Represents a paper from a local PDF file."""
 
-    def __init__(self, pdf_path: str):
-        self.pdf_path = pdf_path
+    def __init__(self, pdf_path: str, strict: bool = False):
+        self.pdf_path = Path(pdf_path)
         self._text = None
         self._title = None
         self._abstract = None
+        self._get_metadata(strict)
 
-        self._get_metadata()
-
-    def _get_text(self) -> str:
+    def _get_text(self, strict: bool = False) -> str:
         """Extracts text from the first few pages of the PDF."""
         if self._text is None:
             try:
-                doc = fitz.open(self.pdf_path)
-                text = ""
-                # Extract text from the first 2 pages (usually enough for metadata)
-                for page_num in range(min(2, doc.page_count)):
-                    text += doc[page_num].get_text()
-                self._text = text.strip()
-                doc.close()
+                if strict:
+                    self._text = get_pdf_layout_analyzer().extract_as_md(pdf=self.pdf_path)
+                else:
+                    doc = fitz.open(self.pdf_path)
+                    text = ""
+                    # Extract text from the first 2 pages (usually enough for metadata)
+                    for page_num in range(min(2, doc.page_count)):
+                        text += doc[page_num].get_text()
+                    self._text = text.strip()
+                    doc.close()
             except Exception as e:
                 logger.error(f"Failed to extract text from {self.pdf_path}: {e}")
                 self._text = ""
         return self._text
 
-    def _get_metadata(self):
-        """Extracts title and abstract from the PDF text using an LLM."""
-        text = self._get_text()
+    def _get_metadata(self, strict: bool = False):
+        """
+        Extracts metadata (title and abstract) from the PDF using LLM.
+        :param strict:  if True, uses strict mode for more accurate extraction.
+        :return: None
+        """
+
+        text = self._get_text(strict)
         if not text:
             self._title = "Unknown Title"
             self._abstract = "Could not extract abstract."
@@ -286,7 +312,6 @@ class LocalPaper:
             logger.error(f"Failed to extract metadata from {self.pdf_path} using LLM: {e}")
             self._title = os.path.basename(self.pdf_path)
             self._abstract = text[:500]  # Fallback to first 500 chars
-
 
     @property
     def title(self):

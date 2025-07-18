@@ -15,7 +15,10 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
+import feedparser
+import pytz
+from dateutil.relativedelta import relativedelta
+from dateutil.parser import isoparse
 from pyzotero import zotero
 from src.recommender import rerank_paper
 from tqdm import tqdm
@@ -24,13 +27,10 @@ from gitignore_parser import parse_gitignore
 from tempfile import mkstemp
 from src.paper import ArxivPaper, LocalPaper
 from src.llm import set_global_llm
-import feedparser
-from dateutil.relativedelta import relativedelta
-from dateutil.parser import isoparse
-import pytz
+from src.pdf_layout_analyzer import set_global_pdf_layout_analyzer
 
 
-def load_config(path="src/config.yaml"):
+def load_config(path="src/my_config.yaml"):
     """Loads the YAML configuration file."""
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -199,6 +199,7 @@ if __name__ == '__main__':
     a_config = config['arxiv']
     app_config = config['app']
     llm_config = config['llm']
+    pdf_analyzer_config = config['pdf_layout_analyzer']
     pref_source = config.get('preference_source', 'zotero')  # Default to zotero
 
     # Setup logger
@@ -217,6 +218,10 @@ if __name__ == '__main__':
     else:
         logger.info("Using Local LLM.")
         set_global_llm(lang=llm_config['language'])
+
+    # Initialize PDF Layout Analyzer
+    set_global_pdf_layout_analyzer(pdf_analyzer_config['model_dir_path'], device=pdf_analyzer_config['device'],
+                                   strict=pdf_analyzer_config['strict'])
 
     corpus = []
     if pref_source == 'zotero':
@@ -248,25 +253,13 @@ if __name__ == '__main__':
     if app_config['max_paper_num'] > 0:
         papers = papers[:app_config['max_paper_num']]
 
-    # Setup LLM
-    if llm_config['use_llm_api']:
-        logger.info("Using API-based LLM.")
-        set_global_llm(
-            api_key=llm_config['openai_api_key'],
-            base_url=llm_config['openai_api_base'],
-            model=llm_config['model_name'],
-            lang=llm_config['language']
-        )
-    else:
-        logger.info("Using Local LLM.")
-        set_global_llm(lang=llm_config['language'])
-
     # Create output directory
     now = datetime.now()
     dir_name = now.strftime("%Y-%m-%d-%H")
     if not os.path.exists(dir_name):
         os.makedirs(dir_name)
-
+    # Change dir to absolute path
+    dir_name = os.path.abspath(dir_name)
     processed_papers = []
     with ThreadPoolExecutor(max_workers=app_config['max_workers']) as executor:
         future_to_paper = {executor.submit(process_paper, paper, dir_name): paper for paper in papers}
@@ -295,4 +288,3 @@ if __name__ == '__main__':
             report_file.write("---\n\n")
 
     logger.success(f"All tasks completed. Report and PDFs are saved in '{dir_name}'.")
-

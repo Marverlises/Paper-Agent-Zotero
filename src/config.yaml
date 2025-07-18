@@ -43,6 +43,18 @@ arxiv:
   # Find abbreviations here: https://arxiv.org/category_taxonomy
   query: "cs.AI+cs.CV+cs.LG+cs.CL"
 
+
+
+# -----------------
+# PDF Extraction Settings
+# -----------------
+pdf_layout_analyzer:
+  # Path to the directory where the model files are stored.
+  model_dir_path: "Path/to/your/model/files"
+  # Strict mode for PDF extraction.
+  strict: false
+  # device to use for PDF extraction.
+  device: "cpu"  # Use "cuda" for GPU, "cpu" for CPU
 # -----------------
 # Large Language Model (LLM) Settings
 # -----------------

@@ -4,3 +4,4 @@ src/my-config.yaml
 .idea
 .venv
 /src/my_config.yaml
+/tests/
