@@ -22,4 +22,5 @@ dependencies = [
     "python-dateutil",
     "pytz",
     "pdf-craft[cuda]>=0.2.6", # or "pdf-craft[cpu]>=0.2.6" if you do not have a GPU
+    "pathvalidate>=3.3.1",
 ]

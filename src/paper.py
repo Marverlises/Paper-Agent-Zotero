@@ -21,6 +21,7 @@ import os
 import fitz  # PyMuPDF
 from .llm import get_llm, set_global_llm
 from .pdf_layout_analyzer import get_pdf_layout_analyzer
+from .utils import normalize_filename
 
 
 class ArxivPaper:
@@ -248,8 +249,7 @@ class ArxivPaper:
             return
         title = re.sub(r'[^\w\s-]', '', self.title).replace(' ', '_')  # Clean title for filename
         filename = f"{self.arxiv_id}.{title}.pdf"
-        # replace dots in filename to avoid issues with file systems
-        filename = re.sub(r'\.+', '.', filename)
+        filename = normalize_filename(filename)
         try:
             # The arxiv library handles the download and saving.
             self.paper.download_pdf(dirpath=dirpath, filename=filename)

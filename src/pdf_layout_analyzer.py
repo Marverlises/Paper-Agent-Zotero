@@ -64,7 +64,7 @@ class PDFLayoutAnalyzer:
                     os.makedirs(os.path.dirname(temp_md_file), exist_ok=True)
                 md_writer = MarkDownWriter(temp_md_file, asset_dir, "utf-8")
                 with md_writer as md:
-                    for block in self.extractor.extract(pdf=str(pdf)):
+                    for block in self.extractor.extract(pdf=str(pdf).replace('.pdf', '')):
                         md.write(block)
                 with open(temp_md_file, 'r', encoding='utf-8') as f:
                     result_text = f.read()
