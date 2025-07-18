@@ -5,7 +5,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python version">
-  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
+  <img src="https://img.shields.io/badge/license-Apache-green.svg" alt="License">
   <img src="https://img.shields.io/badge/status-active-brightgreen.svg" alt="Status">
 </p>
 
