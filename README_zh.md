@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="logo.png" alt="logo" width="200"/>
+  <img src="README.assets/logo.png" alt="logo" width="200"/>
 </p>
 <h1 align="center">Paper Agent - Zotero Arxiv Daily</h1>
 
 <p align="center">
-  <a href="README_en.md">English</a> | 中文
+  <a href="README.md">English</a> | 中文
 </p>
 
 <p align="center">

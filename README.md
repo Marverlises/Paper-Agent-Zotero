@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="logo" width="200"/>
+  <img src="README.assets/logo.png" alt="logo" width="200"/>
 </p>
 <h1 align="center">Paper Agent - Zotero Arxiv Daily </h1>
 
@@ -102,19 +102,19 @@ The daily digest will be saved as a Markdown file in the `year-month-day-hour` d
 
 - The detailed info in assets_dir
 
-![image-20250718132347941](README.assets/image-20250718132347941.png)
+![imgs/image-20250718132347941](README.assets/image-20250718132347941.png)
 
 In each folder, the result is like this:
 
-![image-20250718132404344](README.assets/image-20250718132404344.png)
+![imgs/image-20250718132404344](README.assets/image-20250718132404344.png)
 
 In each paper's assets_dir:
 
-![image-20250718132430800](README.assets/image-20250718132430800.png)
+![imgs/image-20250718132430800](README.assets/image-20250718132430800.png)
 
 In each paper's detailed info markdown file (Part of the result):
 
-![image-20250718142321137](README.assets/image-20250718142321137.png)
+![imgs/image-20250718142321137](README.assets/image-20250718142321137.png)
 
 ## 🤝 Contributing
 
