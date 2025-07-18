@@ -4,7 +4,7 @@
 <h1 align="center">Paper Agent - Zotero Arxiv Daily </h1>
 
 <p align="center">
-  English | <a href="README.md">中文</a>
+  English | <a href="README_zh.md">中文</a>
 </p>
 
 <p align="center">
