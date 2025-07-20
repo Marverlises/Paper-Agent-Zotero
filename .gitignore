@@ -5,3 +5,4 @@ src/my-config.yaml
 .venv
 /src/my_config.yaml
 /tests/
+/publish/
