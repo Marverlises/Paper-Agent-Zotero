@@ -3,31 +3,25 @@
 # @Author     : Marverlises
 # @File       : main.py
 # @Description: Main script to generate daily paper reports.
-
+import feedparser
 import arxiv
 import os
-import sys
 import yaml
-import glob
-from datetime import datetime
+from functools import partial
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+from src.recommender import rerank_paper
+from typing import Optional, List
 
 load_dotenv(override=True)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-import feedparser
-import pytz
-from dateutil.relativedelta import relativedelta
-from dateutil.parser import isoparse
-from pyzotero import zotero
-from src.recommender import rerank_paper
-from tqdm import tqdm
-from loguru import logger
-from gitignore_parser import parse_gitignore
-from tempfile import mkstemp
 from src.paper import ArxivPaper, LocalPaper
 from src.llm import set_global_llm
 from src.pdf_layout_analyzer import set_global_pdf_layout_analyzer
+from src.base_corpus import *
 
 
 def load_config(path="src/my_config.yaml"):
@@ -46,98 +40,110 @@ def load_config(path="src/my_config.yaml"):
         sys.exit(1)
 
 
-def get_zotero_corpus(id: str, key: str, recency_months: int = -1) -> list[dict]:
-    """Fetches and filters the Zotero corpus based on recency."""
-    zot = zotero.Zotero(id, 'user', key)
-    collections = zot.everything(zot.collections())
-    collections = {c['key']: c for c in collections}
-    corpus = zot.everything(zot.items(itemType='conferencePaper || journalArticle || preprint'))
-    corpus = [c for c in corpus if c['data']['abstractNote'] != '']
+def get_arxiv_papers(arxiv_config: dict) -> List[ArxivPaper]:
+    """Fetches papers from arXiv with flexible filtering and sorting options, using Beijing time.
 
-    # Filter by recency if enabled
-    if recency_months > 0:
-        now = datetime.now(pytz.utc)
-        months_ago = now - relativedelta(months=recency_months)
+    Args:
+        arxiv_config (dict): Configuration dictionary containing:
+            - query (str): Search query for arXiv.
+            - start_date (Optional[str]): Start date in 'YYYY-MM-DD' format.
+            - end_date (Optional[str]): End date in 'YYYY-MM-DD' format.
+            - max_results (Optional[int]): Maximum number of results to return.
+            - sort_by (str): Field to sort by ('submittedDate', 'relevance', 'lastUpdatedDate').
+            - sort_order (str): Sort order ('ascending', 'descending').
+            - debug (bool): If True, shows progress bar.
 
-        recent_corpus = []
-        for item in corpus:
-            try:
-                date_added = isoparse(item['data']['dateAdded'])
-                if date_added >= months_ago:
-                    recent_corpus.append(item)
-            except (ValueError, TypeError):
-                # Handle cases where dateAdded is missing or malformed
-                continue
+    Returns:
+        List[ArxivPaper]: List of ArxivPaper objects matching the query and filters.
 
-        logger.info(
-            f"Filtered to {len(recent_corpus)} papers from the last {recency_months} months for recommendations.")
-        corpus = recent_corpus
+    Raises:
+        ValueError: If invalid parameters are provided (e.g., invalid date format or range).
+    """
+    """
+     query: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        max_results: Optional[int] = None,
+        sort_by: str = "submittedDate",
+        sort_order: str = "descending",
+        debug: bool = False
+    """
+    query = arxiv_config['query']
+    start_date = arxiv_config.get('start_time', None)
+    end_date = arxiv_config.get('end_time', None)
+    max_results = arxiv_config.get('max_results', 20)
+    sort_by = arxiv_config.get('sort_by', 'submittedDate')
+    sort_order = arxiv_config.get('sort_order', 'descending')
 
-    def get_collection_path(col_key: str) -> str:
-        """Recursively builds the full path for a Zotero collection."""
-        if p := collections[col_key]['data']['parentCollection']:
-            return get_collection_path(p) + '/' + collections[col_key]['data']['name']
-        else:
-            return collections[col_key]['data']['name']
+    beijing_tz = ZoneInfo("Asia/Shanghai")
 
-    for c in corpus:
-        paths = [get_collection_path(col) for col in c['data']['collections']]
-        c['paths'] = paths
-    return corpus
+    def parse_date(date_str: Optional[str]) -> Optional[datetime]:
+        if not date_str:
+            return None
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            return dt.replace(tzinfo=beijing_tz)
+        except ValueError:
+            raise ValueError(f"Invalid date format: {date_str}. Use 'YYYY-MM-DD'.")
 
+    start_dt = parse_date(start_date)
+    end_dt = parse_date(end_date)
 
-def get_local_corpus(path: str) -> list[dict]:
-    """Fetches and processes local PDFs to build a corpus."""
-    if not os.path.isdir(path):
-        logger.error(f"Local PDF path does not exist or is not a directory: {path}")
-        return []
+    if start_dt and end_dt and start_dt > end_dt:
+        raise ValueError("start_date must be earlier than or equal to end_date")
 
-    pdf_files = glob.glob(os.path.join(path, '**', '*.pdf'), recursive=True)
+    current_time = datetime.now(beijing_tz)
+    if end_dt and end_dt > current_time:
+        logger.warning("end_date is in the future; setting to current Beijing time")
+        end_dt = current_time
 
-    if not pdf_files:
-        logger.warning(f"No PDF files found in directory: {path}")
-        return []
+    sort_by_map = {
+        "submittedDate": arxiv.SortCriterion.SubmittedDate,
+        "relevance": arxiv.SortCriterion.Relevance,
+        "lastUpdatedDate": arxiv.SortCriterion.LastUpdatedDate
+    }
+    sort_order_map = {
+        "ascending": arxiv.SortOrder.Ascending,
+        "descending": arxiv.SortOrder.Descending
+    }
 
-    logger.info(f"Found {len(pdf_files)} PDF files in {path}. Processing...")
+    if sort_by not in sort_by_map:
+        raise ValueError(f"Invalid sort_by value. Choose from {list(sort_by_map.keys())}")
+    if sort_order not in sort_order_map:
+        raise ValueError(f"Invalid sort_order value. Choose from {list(sort_order_map.keys())}")
 
-    corpus = []
-    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-        future_to_pdf = {executor.submit(LocalPaper, pdf_file): pdf_file for pdf_file in pdf_files}
+    client = arxiv.Client(num_retries=10, delay_seconds=10)
 
-        for future in tqdm(as_completed(future_to_pdf), total=len(pdf_files), desc="Processing Local PDFs"):
-            paper = future.result()
-            if paper.title != "Unknown Title":
-                corpus.append({
-                    'data': {
-                        'title': paper.title,
-                        'abstractNote': paper.abstract
-                    }
-                })
-                logger.success(f"Successfully processed: {os.path.basename(paper.pdf_path)}")
-            else:
-                logger.warning(f"Failed to process: {os.path.basename(paper.pdf_path)}")
+    search = arxiv.Search(
+        query=query,
+        max_results=max_results,
+        sort_by=sort_by_map[sort_by],
+        sort_order=sort_order_map[sort_order]
+    )
 
-    return corpus
+    papers = []
+    bar = tqdm(desc="Fetching arXiv paper details")
 
-
-def filter_corpus(corpus: list[dict], pattern: str) -> list[dict]:
-    _, filename = mkstemp()
-    with open(filename, 'w') as file:
-        file.write(pattern)
-    matcher = parse_gitignore(filename, base_dir='../')
-    new_corpus = []
-    for c in corpus:
-        match_results = [matcher(p) for p in c['paths']]
-        if not any(match_results):
-            new_corpus.append(c)
     try:
-        os.remove(filename)
-    except OSError as e:
-        logger.error(f"Error removing temporary file {filename}: {e}")
-    return new_corpus
+        for result in client.results(search):
+            published_beijing = result.published.astimezone(beijing_tz)
+            if start_dt and published_beijing.date() < start_dt.date():
+                continue
+            if end_dt and published_beijing.date() > end_dt.date():
+                continue
+            papers.append(ArxivPaper(result))
+            bar.update(1)
+            if max_results and len(papers) >= max_results:
+                break
+    except Exception as e:
+        logger.error(f"Error fetching papers: {e}")
+    finally:
+        bar.close()
+
+    return papers
 
 
-def get_arxiv_paper(query: str, debug: bool = False) -> list[ArxivPaper]:
+def get_arxiv_paper_daily(query: str, debug: bool = False) -> list[ArxivPaper]:
     """Fetches new papers from arXiv."""
     client = arxiv.Client(num_retries=10, delay_seconds=10)
     feed = feedparser.parse(f"https://rss.arxiv.org/atom/{query}")
@@ -165,7 +171,7 @@ def get_arxiv_paper(query: str, debug: bool = False) -> list[ArxivPaper]:
     return papers
 
 
-def process_paper(paper, dir_name):
+def process_paper(paper, dir_name, paper_download_retry=3):
     """
     Processes a single paper: downloads PDF, generates TLDR.
     Returns a dictionary with paper info for reporting.
@@ -197,6 +203,7 @@ if __name__ == '__main__':
 
     z_config = config['zotero']
     a_config = config['arxiv']
+    local_config = config['local']
     app_config = config['app']
     llm_config = config['llm']
     pdf_analyzer_config = config['pdf_layout_analyzer']
@@ -222,28 +229,11 @@ if __name__ == '__main__':
     # Initialize PDF Layout Analyzer
     set_global_pdf_layout_analyzer(pdf_analyzer_config['model_dir_path'], device=pdf_analyzer_config['device'],
                                    strict=pdf_analyzer_config['strict'])
-
-    corpus = []
-    if pref_source == 'zotero':
-        logger.info("Retrieving Zotero corpus as the preference source...")
-        corpus = get_zotero_corpus(z_config['id'], z_config['key'], z_config.get('recency_months', -1))
-        logger.info(f"Retrieved {len(corpus)} papers from Zotero.")
-        if z_config.get('ignore'):
-            ignore_pattern = "\n".join(z_config['ignore'])
-            logger.info(f"Ignoring papers in collections:\n{ignore_pattern}")
-            corpus = filter_corpus(corpus, ignore_pattern)
-            logger.info(f"Finished filtering. {len(corpus)} papers remaining.")
-    elif pref_source == 'local':
-        logger.info("Using local PDF directory as the preference source...")
-        local_config = config['local']
-        corpus = get_local_corpus(local_config['path'])
-        logger.info(f"Built a corpus from {len(corpus)} local papers.")
-    else:
-        logger.error(f"Invalid preference_source: '{pref_source}'. Please use 'zotero' or 'local'.")
-        sys.exit(1)
+    # Get the base paper seed
+    corpus = get_corpus(pref_source=pref_source, z_config=z_config, local_config=local_config)
 
     logger.info("Fetching new papers from arXiv...")
-    papers = get_arxiv_paper(a_config['query'])
+    papers = get_arxiv_paper_daily(a_config['query'])
     if not papers:
         logger.info("No new papers found today.")
         exit(0)
@@ -261,6 +251,9 @@ if __name__ == '__main__':
     # Change dir to absolute path
     dir_name = os.path.abspath(dir_name)
     processed_papers = []
+
+    # config process_paper
+    partial(process_paper, paper_download_retry=app_config.get('paper_download_retry', 3))
     with ThreadPoolExecutor(max_workers=app_config['max_workers']) as executor:
         future_to_paper = {executor.submit(process_paper, paper, dir_name): paper for paper in papers}
 

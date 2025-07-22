@@ -10,6 +10,9 @@ app:
   # Number of papers to process in parallel (threads).
   max_workers: 10
 
+  # PDF download retry count
+  retry_count: 3
+
 # Preference source: "zotero" or "local"
 preference_source: "zotero"
 
@@ -41,9 +44,12 @@ local:
 arxiv:
   # The arXiv fields you are interested in. Use '+' to connect multiple fields.
   # Find abbreviations here: https://arxiv.org/category_taxonomy
-  query: "cs.AI+cs.CV+cs.LG+cs.CL"
-
-
+  query: "cs.AI+cs.CV+cs.LG+cs.CL+cs.IR+cs.LG+cs.MM"
+#  # Time period for arXiv query (in days). # TODO
+#  start_time: "2023-01-01"  # <--- Fill in the start date for arXiv query
+#  end_time: "2099-12-31"    # <--- Fill in the end date for arXiv query
+#  sort_by: "submittedDate" #
+#  sort_order: "descending"
 
 # -----------------
 # PDF Extraction Settings
