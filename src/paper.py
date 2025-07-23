@@ -4,7 +4,7 @@
 # @File       : paper.py
 # @Description: Defines the ArxivPaper class for handling paper data and operations.
 
-from typing import Optional, LiteralString
+from typing import Optional, LiteralString, Union
 from functools import cached_property
 from tempfile import TemporaryDirectory
 import arxiv
@@ -25,11 +25,12 @@ from .utils import normalize_filename
 
 
 class ArxivPaper:
-    def __init__(self, paper: arxiv.Result):
+    def __init__(self, paper: arxiv.Result, assets_dir: str = "assets_dir"):
         self.paper = paper
         self.score = None
         self._is_downloaded = False
         self.pdf_path = None  # To store path of downloaded PDF
+        self.assets_dir = assets_dir  # Directory for storing assets like images and markdown files
 
     @property
     def arxiv_id(self):
@@ -59,13 +60,17 @@ class ArxivPaper:
             return ""
 
         logger.info(f"Extracting text from {self.pdf_path}...")
-        try:
-            text = get_pdf_layout_analyzer().extract_as_md(pdf=self.pdf_path).strip()
-            logger.success(f"Successfully extracted text for '{self.title}'.")
-            return text
-        except Exception as e:
-            logger.error(f"Failed to read PDF text from {self.pdf_path}: {e}")
-            return ""
+        retry_count = 3
+
+        for attempt in range(retry_count):
+            try:
+                text = get_pdf_layout_analyzer().extract_as_md(pdf=self.pdf_path, asset_dir=self.assets_dir).strip()
+                logger.success(f"Successfully extracted text for '{self.title}'.")
+                return text
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} to extract text from {self.pdf_path} failed: {e}")
+        logger.error(f"Failed to read PDF text from {self.pdf_path}")
+        return ""
 
     @cached_property
     def images_in_order(self) -> list[LiteralString | str | bytes] | None:
@@ -202,6 +207,52 @@ class ArxivPaper:
         return get_llm().get_tldr(self.title, self.summary, full_text)
 
     @cached_property
+    def markdown_summary_with_image(self) -> str:
+        """Generates a detailed summary in Markdown format, including images."""
+
+        def change_image_path_to_absolute(md_text: str) -> str:
+            """
+            Convert relative image paths in markdown text to absolute paths.
+
+            Args:
+                md_text (str): Markdown text containing image paths
+            Returns:
+                str: Markdown text with absolute image paths
+            """
+
+            # Ensure we're working with the parent directory of the PDF
+            base_path = self.pdf_path.parent / 'papers'
+
+            # Regex pattern to match markdown image syntax with assets directory
+            pattern = r'!\[([^\]]*)\]\((assets/[^)]+\.(?:png|jpg|jpeg|gif))\)'
+
+            def replace_path(match: re.Match) -> str:
+                # Extract alt text and relative path from match
+                alt_text = match.group(1)
+                rel_path = match.group(2)
+
+                # Create absolute path
+                abs_path = (base_path / rel_path).resolve().as_posix()
+
+                # Return new markdown image syntax with absolute path
+                return f'![{alt_text}]({abs_path})'
+
+            # Replace all matching image paths
+            return re.sub(pattern, replace_path, md_text)
+
+        if not self._is_downloaded:
+            logger.error(f"Cannot generate Markdown summary for '{self.title}' because PDF is not downloaded.")
+            return "Error: PDF not downloaded. Cannot generate detailed summary."
+        try:
+            summary_with_image = get_llm().get_summary_with_image(self.pdf_text)
+        except:
+            summary_with_image = ''
+            logger.error(
+                f"Could not generate Markdown summary for '{self.title}' because full text extraction failed. Using abstract instead.")
+
+        return change_image_path_to_absolute(summary_with_image)
+
+    @cached_property
     def affiliations(self) -> Optional[list[str]]:
         if self.tex is not None:
             content = self.tex.get("all")
@@ -238,41 +289,45 @@ class ArxivPaper:
                 return None
             return affiliations
 
-    def download_pdf(self, dirpath: str = './', title=None):
+    def download_pdf(self, dirpath: str = './', paper_download_retry: int = 3):
         """Downloads the PDF and stores its path."""
         if self._is_downloaded:
             return
         title = re.sub(r'[^\w\s-]', '', self.title).replace(' ', '_')  # Clean title for filename
         filename = f"{self.arxiv_id}.{title}.pdf"
         filename = normalize_filename(filename)
-        try:
-            # The arxiv library handles the download and saving.
-            self.paper.download_pdf(dirpath=dirpath, filename=filename)
-            self._is_downloaded = True
-            logger.info(f"Successfully downloaded '{filename}'.")
-            self.pdf_path = Path(os.path.join(dirpath, filename))
-        except Exception as e:
-            logger.error(f"Failed to download PDF for '{self.arxiv_id}': {e}")
-            self.pdf_path = None  # Reset path on failure
-            self._is_downloaded = False
+
+        for attempt in range(paper_download_retry):
+            try:
+                # The arxiv library handles the download and saving.
+                self.paper.download_pdf(dirpath=dirpath, filename=filename)
+                self._is_downloaded = True
+                logger.info(f"Successfully downloaded '{filename}'.")
+                self.pdf_path = Path(os.path.join(dirpath, filename))
+                break
+            except Exception as e:
+                logger.error(f"Failed to download PDF for '{self.arxiv_id}': {e}")
+                self.pdf_path = None  # Reset path on failure
+                self._is_downloaded = False
 
 
 class LocalPaper:
     """Represents a paper from a local PDF file."""
 
-    def __init__(self, pdf_path: str, strict: bool = False):
+    def __init__(self, pdf_path: str, strict: bool = False, assets_dir: str = "assets_dir"):
         self.pdf_path = Path(pdf_path)
         self._text = None
         self._title = None
         self._abstract = None
         self._get_metadata(strict)
+        self.assets_dir = assets_dir
 
     def _get_text(self, strict: bool = False) -> str:
         """Extracts text from the first few pages of the PDF."""
         if self._text is None:
             try:
                 if strict:
-                    self._text = get_pdf_layout_analyzer().extract_as_md(pdf=self.pdf_path)
+                    self._text = get_pdf_layout_analyzer().extract_as_md(pdf=self.pdf_path, asset_dir=self.assets_dir)
                 else:
                     doc = fitz.open(self.pdf_path)
                     text = ""

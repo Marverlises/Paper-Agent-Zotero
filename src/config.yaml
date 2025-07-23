@@ -45,6 +45,9 @@ arxiv:
   # The arXiv fields you are interested in. Use '+' to connect multiple fields.
   # Find abbreviations here: https://arxiv.org/category_taxonomy
   query: "cs.AI+cs.CV+cs.LG+cs.CL+cs.IR+cs.LG+cs.MM"
+
+  # Path to the directory where the image assets will be stored. (Based on the generated detailed md report of a paper path such as: os.path.abspath(os.path.join(md_path, "..", assets_path))
+  assets_dir: "assets_dir"
 #  # Time period for arXiv query (in days). # TODO
 #  start_time: "2023-01-01"  # <--- Fill in the start date for arXiv query
 #  end_time: "2099-12-31"    # <--- Fill in the end date for arXiv query

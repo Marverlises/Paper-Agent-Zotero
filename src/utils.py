@@ -52,6 +52,42 @@ def normalize_filename(filename: str, max_length: int = 255, sanitize: bool = Tr
 
     return normalized
 
+
+def chunk_text_for_llm(input_text: str, max_chunk_size: int = 4096) -> list[str]:
+    """
+    Splits the input text into chunks suitable for LLM processing.
+
+    Args:
+        input_text (str): The text to be chunked.
+        max_chunk_size (int): Maximum size of each chunk (default: 4096).
+
+    Returns:
+        list[str]: List of text chunks.
+    """
+    if not input_text:
+        return []
+
+    # Split the text into sections based on the '# ' character
+    sections = input_text.split('# ')
+    chunks = []
+    current_chunk = ""
+    for section in sections:
+        # Skip the reference part
+        if section.strip().lower().startswith('reference'):
+            continue
+        # Add the section header back
+        section = '# ' + section.strip()
+        if len(current_chunk) + len(section) > max_chunk_size:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            current_chunk = section
+        else:
+            current_chunk += ' ' + section
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+    return chunks
+
+
 if __name__ == '__main__':
     file_name = r'2507.11997v1.Can_LLMs_Find_Fraudsters_Multi-level_LLM_Enhanced_Graph_Fraud_Detection.pdf'
     normalized_name = normalize_filename(file_name, max_length=255, sanitize=True)

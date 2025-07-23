@@ -7,9 +7,7 @@
 
 import os
 from pathlib import Path
-
 from loguru import logger
-
 from pdf_craft import create_pdf_page_extractor, PDFPageExtractor, MarkDownWriter, OCRLevel
 
 
@@ -58,7 +56,7 @@ class PDFLayoutAnalyzer:
                 return markdown_save_path
             else:
                 logger.info(f"No markdown_save_path provided, returning extracted text as string.")
-                temp_md_file = os.path.join(os.path.dirname(pdf), asset_dir, os.path.basename(pdf),
+                temp_md_file = os.path.join(os.path.dirname(pdf), 'papers', os.path.splitext(os.path.basename(pdf))[0],
                                             os.path.splitext(os.path.basename(pdf))[0] + ".md")
                 if not os.path.exists(os.path.dirname(temp_md_file)):
                     os.makedirs(os.path.dirname(temp_md_file), exist_ok=True)

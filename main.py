@@ -131,7 +131,7 @@ def get_arxiv_papers(arxiv_config: dict) -> List[ArxivPaper]:
                 continue
             if end_dt and published_beijing.date() > end_dt.date():
                 continue
-            papers.append(ArxivPaper(result))
+            papers.append(ArxivPaper(paper=result, assets_dir=arxiv_config['assets_dir']))
             bar.update(1)
             if max_results and len(papers) >= max_results:
                 break
@@ -143,12 +143,12 @@ def get_arxiv_papers(arxiv_config: dict) -> List[ArxivPaper]:
     return papers
 
 
-def get_arxiv_paper_daily(query: str, debug: bool = False) -> list[ArxivPaper]:
+def get_arxiv_paper_daily(arxiv_config: dict) -> List[ArxivPaper]:
     """Fetches new papers from arXiv."""
     client = arxiv.Client(num_retries=10, delay_seconds=10)
-    feed = feedparser.parse(f"https://rss.arxiv.org/atom/{query}")
+    feed = feedparser.parse(f"https://rss.arxiv.org/atom/{arxiv_config['query']}")
     if 'Feed error for query' in feed.feed.title:
-        raise Exception(f"Invalid ARXIV_QUERY: {query}.")
+        raise Exception(f"Invalid ARXIV_QUERY: {arxiv_config['query']}.")
 
     all_paper_ids = [i.id.removeprefix("oai:arXiv.org:") for i in feed.entries if i.arxiv_announce_type == 'new']
     if not all_paper_ids:
@@ -161,7 +161,7 @@ def get_arxiv_paper_daily(query: str, debug: bool = False) -> list[ArxivPaper]:
     for batch_ids in search_batches:
         search = arxiv.Search(id_list=batch_ids)
         try:
-            batch_results = [ArxivPaper(p) for p in client.results(search)]
+            batch_results = [ArxivPaper(paper=p, assets_dir=arxiv_config['assets_dir']) for p in client.results(search)]
             papers.extend(batch_results)
             bar.update(len(batch_results))
         except Exception as e:
@@ -178,20 +178,18 @@ def process_paper(paper, dir_name, paper_download_retry=3):
     """
     try:
         # Download the PDF
-        paper.download_pdf(dirpath=dir_name, title=paper.title)
-
-        # Generate TLDR
-        tldr = paper.tldr
+        paper.download_pdf(dirpath=dir_name, paper_download_retry=paper_download_retry)
         logger.success(f"Generated deep-dive summary for: '{paper.title}'")
 
         return {
             "title": paper.title,
             "authors": ', '.join([author.name for author in paper.authors]),
-            "tldr": tldr,
+            "tldr": paper.tldr,
             "summary": paper.summary,
             "pdf_url": paper.pdf_url,
             "arxiv_id": paper.arxiv_id,
-            "score": paper.score
+            "score": paper.score,
+            # "summary_with_image": paper.markdown_summary_with_image
         }
     except Exception as e:
         logger.error(f"Failed to process paper '{paper.title}': {e}")
@@ -233,7 +231,7 @@ if __name__ == '__main__':
     corpus = get_corpus(pref_source=pref_source, z_config=z_config, local_config=local_config)
 
     logger.info("Fetching new papers from arXiv...")
-    papers = get_arxiv_paper_daily(a_config['query'])
+    papers = get_arxiv_paper_daily(a_config)
     if not papers:
         logger.info("No new papers found today.")
         exit(0)
